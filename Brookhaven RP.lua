@@ -1679,13 +1679,14 @@ end
 ----=======teste troll============
 
 
--- Adicione isso no Troll tab, após o dropdown "Select Player"
+-- Adicione isso no Troll tab, após o dropdown "Select Player" e antes dos métodos de Kill
 
--- Variável global pra freeze (como no hub)
+-- Variáveis globais pra freeze (como no hub)
 getgenv().FreezeEnabled = false
 local freezeConnection = nil
+local frozenCouch = nil  -- Armazena couch pra cleanup
 
--- Função Freeze (trava HRP na posição atual, loop reforça)
+-- Função Freeze com Couch (force sit + lock, server-side)
 local function FreezePlayer()
     if not selectedPlayerName then
         warn("Error: No player selected")
@@ -1705,38 +1706,88 @@ local function FreezePlayer()
         return
     end
 
-    -- Posição original (trava ali)
-    local originalPos = tRoot.Position
+    -- Limpa tools (como no hub)
+    ReplicatedStorage:WaitForChild("RE"):WaitForChild("1Clea1rTool1s"):FireServer("ClearAllTools")
+    wait(math.random(0.2, 0.5))  -- Delay anti-ban
 
-    -- Desabilita movimento (ragdoll)
-    tHum.PlatformStand = true
+    -- Spawna Couch (como no Bring/Kill do hub)
+    local args = { [1] = "PickingTools", [2] = "Couch" }
+    ReplicatedStorage.RE:FindFirstChild("1Too1l"):InvokeServer(unpack(args))
+    wait(math.random(0.3, 0.6))
 
-    -- BodyPosition pra lock (replica pro server, todos veem)
-    local bp = Instance.new("BodyPosition")
-    bp.Name = "FreezeLock"
-    bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bp.Position = originalPos
-    bp.D = 1000  -- Damping pra suave
-    bp.P = 10000  -- Power alto
-    bp.Parent = tRoot
+    local couch = LocalPlayer.Backpack:WaitForChild("Couch", 2)
+    if not couch then
+        warn("Error: Couch not spawned")
+        return
+    end
 
-    -- Loop reforça (como no fling do hub)
+    -- Renomeia e desabilita seats (trava pós-sit, como no hub)
+    frozenCouch = couch
+    couch.Name = "FreezeCouch"
+    local seat1 = couch:FindFirstChild("Seat1")
+    local seat2 = couch:FindFirstChild("Seat2")
+    local handle = couch:FindFirstChild("Handle")
+    if seat1 and seat2 and handle then
+        seat1.Disabled = true  -- Trava sit
+        seat2.Disabled = true
+        handle.Name = "Handle "  -- Truque do hub pra dupe/lock
+    end
+    couch.Parent = Character  -- Equipa
+
+    -- Puxa target pra couch (BodyVelocity follow, como no Bring do hub)
+    local bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bv.P = 1250
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.Name = "FreezePull"
+    bv.Parent = seat1
+
+    -- Loop pull (até sit, como no hub)
+    spawn(function()
+        repeat
+            local pos = {}
+            pos.x = tRoot.Position.X + (tRoot.Velocity.X / 2)
+            pos.y = tRoot.Position.Y + (tRoot.Velocity.Y / 2)
+            pos.z = tRoot.Position.Z + (tRoot.Velocity.Z / 2)
+            seat1.CFrame = CFrame.new(pos) * CFrame.new(-2, 2, 0)  -- Atrás/alto do target
+            wait(0.05)  -- Rápido pra puxar
+        until tHum.Sit == true or not getgenv().FreezeEnabled  -- Para no sit
+
+        bv:Destroy()  -- Cleanup pull
+    end)
+
+    wait(math.random(0.5, 1))  -- Delay até sit
+
+    -- Trava pós-sit (Velocity=0 + PlatformStand, reforçado)
+    tHum.PlatformStand = true  -- Ragdoll (visível, mas trava movimento)
+    tHum:SetStateEnabled(Enum.HumanoidStateType.Running, false)  -- Desabilita run
+    tHum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)  -- Desabilita jump
+
+    -- BodyVelocity=0 pra lock total (replica physics)
+    local lockBV = Instance.new("BodyVelocity")
+    lockBV.Name = "FreezeLock"
+    lockBV.Velocity = Vector3.new(0, 0, 0)
+    lockBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    lockBV.P = 1e6  -- Força alta
+    lockBV.Parent = tRoot
+
+    -- Loop reforça trava (como fling do hub, infinito até off)
     if freezeConnection then freezeConnection:Disconnect() end
     freezeConnection = RunService.Heartbeat:Connect(function()
         if getgenv().FreezeEnabled and tRoot and tRoot.Parent then
-            bp.Position = originalPos  -- Mantém travado
-            tRoot.Velocity = Vector3.new(0, 0, 0)  -- Zera velocidade
+            lockBV.Velocity = Vector3.new(0, 0, 0)  -- Zera movimento
             tRoot.RotVelocity = Vector3.new(0, 0, 0)  -- Zera rotação
+            tHum.PlatformStand = true  -- Reforça ragdoll
         else
             freezeConnection:Disconnect()
             freezeConnection = nil
         end
     end)
 
-    print("Player " .. selectedPlayerName .. " frozen!")
+    print("Player " .. selectedPlayerName .. " frozen with Couch (stuck forever)!")
 end
 
--- Função Unfreeze
+-- Função Unfreeze (cleanup como no hub)
 local function UnfreezePlayer()
     getgenv().FreezeEnabled = false
     if freezeConnection then
@@ -1747,19 +1798,36 @@ local function UnfreezePlayer()
     if target and target.Character then
         local tHum = target.Character:FindFirstChildOfClass("Humanoid")
         local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
-        if tHum then tHum.PlatformStand = false end
+        if tHum then
+            tHum.PlatformStand = false
+            tHum:SetStateEnabled(Enum.HumanoidStateType.Running, true)
+            tHum:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+        end
         if tRoot then
-            local bp = tRoot:FindFirstChild("FreezeLock")
-            if bp then bp:Destroy() end
+            local lockBV = tRoot:FindFirstChild("FreezeLock")
+            if lockBV then lockBV:Destroy() end
         end
     end
-    print("Player " .. selectedPlayerName .. " unfrozen!")
+    -- Cleanup Couch
+    if frozenCouch then
+        frozenCouch.Parent = LocalPlayer.Backpack
+        frozenCouch:FindFirstChild("Handle "):Name = "Handle"  -- Reset truque
+        frozenCouch.Name = "Couch"
+        local seat1 = frozenCouch:FindFirstChild("Seat1")
+        local seat2 = frozenCouch:FindFirstChild("Seat2")
+        if seat1 then seat1.Disabled = false end
+        if seat2 then seat2.Disabled = false end
+        frozenCouch = nil
+    end
+    ReplicatedStorage.RE["1Clea1rTool1s"]:FireServer("ClearAllTools")
+    wait(0.2)
+    print("Player " .. selectedPlayerName .. " unfrozen and Couch cleaned!")
 end
 
--- Adicione no UI: Toggle Freeze (como os outros toggles)
+-- Adicione no UI: Toggle Freeze (integra com dropdown existente)
 Troll:AddToggle({
-    Name = "Freeze Player",
-    Description = "Freezes the selected player (can't move)",
+    Name = "Freeze Player (Couch Stuck)",
+    Description = "Freezes selected player forever (visible to all, can't move)",
     Default = false,
     Callback = function(value)
         getgenv().FreezeEnabled = value
@@ -1771,10 +1839,11 @@ Troll:AddToggle({
     end
 })
 
--- Opcional: Button pra freeze rápido (sem toggle)
+-- Opcional: Button pra freeze rápido
 Troll:AddButton({
     Name = "Quick Freeze",
     Callback = function()
+        getgenv().FreezeEnabled = true
         FreezePlayer()
     end
 })
