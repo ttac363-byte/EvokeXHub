@@ -8025,6 +8025,149 @@ Section = ToolsTab:AddSection({
     Name = "Aura Grip"
 })
 
+-- Função Skybox FE (Visível para Todos - Brookhaven RP 2025)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+-- Presets de Cores para o Céu
+local skyPresets = {
+    Red = {Color = Color3.fromRGB(255, 0, 0), Fog = Color3.fromRGB(150, 0, 0)},      -- Céu vermelho sangue
+    Blue = {Color = Color3.fromRGB(0, 0, 255), Fog = Color3.fromRGB(0, 0, 150)},    -- Azul noturno
+    Green = {Color = Color3.fromRGB(0, 255, 0), Fog = Color3.fromRGB(0, 150, 0)},   -- Verde matrix
+    Purple = {Color = Color3.fromRGB(128, 0, 128), Fog = Color3.fromRGB(75, 0, 75)}, -- Roxo sombrio
+    Rainbow = {Color = Color3.fromRGB(255, 0, 0), Fog = Color3.fromRGB(128, 0, 128)} -- Rainbow (especial)
+}
+
+local skyboxEnabled = false
+local skyboxPreset = "Red"  -- Preset default
+local skyParts = {}  -- Armazena partes dupadas para cleanup
+
+-- Função para Dupe e Posicionar Partes no Céu (FE via Remote)
+local function createSkyPart(color, preset)
+    -- Dupe Box (usa remote do Brookhaven para replicar)
+    local args = {[1] = "PickingTools", [2] = "Box"}
+    ReplicatedStorage.RE["1Too1l"]:InvokeServer(unpack(args))
+    wait(0.1)  -- Delay anti-flood
+    
+    local box = LocalPlayer.Backpack:FindFirstChild("Box")
+    if box then
+        box.Parent = workspace  -- Solta no mundo (replica)
+        local handle = box:FindFirstChild("Handle")
+        if handle then
+            -- Configura como "céu falso"
+            handle.Size = Vector3.new(2000, 1, 2000)  -- Enorme para cobrir visão
+            handle.Position = Vector3.new(
+                math.random(-5000, 5000),  -- X aleatório
+                math.random(1000, 1500),   -- Y alto (céu)
+                math.random(-5000, 5000)   -- Z aleatório
+            )
+            handle.Color = color
+            handle.Transparency = 0.4  -- Semi-transparente para efeito etéreo
+            handle.Material = Enum.Material.ForceField  -- Brilho futurista
+            handle.CanCollide = false
+            handle.Anchored = true  -- Fixa no céu
+            handle.Parent = nil  -- Remove handle para evitar tool ativação (mas parte fica)
+            
+            -- Adiciona à lista para cleanup
+            table.insert(skyParts, handle)
+        end
+        box:Destroy()  -- Cleanup tool
+    end
+end
+
+-- Função para Aplicar Preset (Dupe Múltiplas Partes + Efeitos)
+local function applySkybox(presetName)
+    local preset = skyPresets[presetName or "Red"]
+    if not preset then return end
+    
+    -- Dupe 50 partes para cobertura total (ajuste se lagar)
+    for i = 1, 50 do
+        createSkyPart(preset.Color, preset)
+        wait(0.05)  -- Delay pra não crashar servidor
+    end
+    
+    -- Efeitos Lighting (client-side, mas complementa o FE)
+    local tweenInfo = TweenInfo.new(3, Enum.EasingStyle.Quad)
+    TweenService:Create(game.Lighting, tweenInfo, {
+        FogColor = preset.Fog,
+        FogEnd = 500,          -- Neblina densa
+        Brightness = 2,        -- Brilho alto
+        Ambient = preset.Color -- Luz ambiente colorida
+    }):Play()
+    
+    print("Skybox FE aplicado: " .. presetName .. " (visível para todos via partes dupadas)")
+end
+
+-- Função Principal: Toggle Skybox
+local function toggleSkybox(newPreset)
+    skyboxEnabled = not skyboxEnabled
+    skyboxPreset = newPreset or skyboxPreset
+    
+    if skyboxEnabled then
+        applySkybox(skyboxPreset)
+        
+        -- Loop Rainbow especial (se preset for Rainbow)
+        if skyboxPreset == "Rainbow" then
+            spawn(function()
+                local hue = 0
+                while skyboxEnabled do
+                    hue = hue + 0.01
+                    local rainbowColor = Color3.fromHSV(hue % 1, 1, 1)
+                    -- Re-aplica cor em partes existentes (efeito pulsante)
+                    for _, part in ipairs(skyParts) do
+                        if part and part.Parent then
+                            part.Color = rainbowColor
+                        end
+                    end
+                    wait(0.5)
+                end
+            end)
+        end
+    else
+        -- Cleanup: Remove partes e reset Lighting
+        for _, part in ipairs(skyParts) do
+            if part and part.Parent then
+                part:Destroy()
+            end
+        end
+        skyParts = {}
+        
+        -- Reset Lighting
+        local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad)
+        TweenService:Create(game.Lighting, tweenInfo, {
+            FogColor = Color3.fromRGB(199, 198, 198),  -- Padrão Brookhaven
+            FogEnd = 100000,
+            Brightness = 1,
+            Ambient = Color3.fromRGB(100, 100, 100)
+        }):Play()
+        
+        print("Skybox FE removido (resetado)")
+    end
+end
+
+-- Exemplo de Uso no Hub (Adicione na UI)
+-- TrollTab:AddToggle({
+--     Name = "Skybox Troll (Vermelho FE)",
+--     Default = false,
+--     Callback = function(value)
+--         toggleSkybox(value and "Red" or nil)
+--     end
+-- })
+-- TrollTab:AddDropdown({
+--     Name = "Preset Skybox",
+--     Options = {"Red", "Blue", "Green", "Purple", "Rainbow"},
+--     Callback = function(preset)
+--         if skyboxEnabled then toggleSkybox(preset) end
+--     end
+-- })
+
+-- Teste Imediato (Cole no Console):
+toggleSkybox("Red")  -- Ativa vermelho FE; execute de novo para off
+
+
 -- Button for Couch Aura
 ToolsTab:AddButton({
     Name = "Couch Aura",
