@@ -449,6 +449,73 @@ Callback = function()
         [6] = 0
     }
 }
+-- Nova Seção: RGB Céu
+Tab:AddSection({ "RGB Sky" })
+
+local skyColors = {
+    Color3.new(1, 0, 0),    -- Vermelho
+    Color3.new(0, 1, 0),    -- Verde
+    Color3.new(0, 0, 1),    -- Azul
+    Color3.new(1, 1, 0),    -- Amarelo
+    Color3.new(1, 0, 1),    -- Magenta
+    Color3.new(0, 1, 1)     -- Ciano
+}
+local skyRGBActive = false
+local skyConnection
+
+local function applySkyColor(color)
+    pcall(function()
+        local lighting = game:GetService("Lighting")
+        local sky = lighting:FindFirstChildOfClass("Sky")
+        if sky then
+            -- Muda as texturas do céu para simular RGB (SkyboxBk/Dn/Ft/Lf/Rt/Up)
+            sky.SkyboxBk = "rbxassetid://600830446"  -- Exemplo de skybox neutra; substitua por uma RGB se quiser
+            sky.SkyboxDn = "rbxassetid://600830446"
+            sky.SkyboxFt = "rbxassetid://600830446"
+            sky.SkyboxLf = "rbxassetid://600830446"
+            sky.SkyboxRt = "rbxassetid://600830446"
+            sky.SkyboxUp = "rbxassetid://600830446"
+            sky.StarCount = 0  -- Remove estrelas para foco no RGB
+        end
+
+        -- Efeito global de cor via ColorCorrection (tinta o céu inteiro)
+        local colorCorrection = lighting:FindFirstChild("SkyRGBEffect") or Instance.new("ColorCorrectionEffect")
+        colorCorrection.Name = "SkyRGBEffect"
+        colorCorrection.TintColor = color
+        colorCorrection.Saturation = 0.5  -- Aumenta saturação para RGB vibrante
+        colorCorrection.Brightness = 0.2
+        colorCorrection.Contrast = 0.3
+        colorCorrection.Parent = lighting
+    end)
+end
+
+local function cycleSkyRGB()
+    while skyRGBActive do
+        for _, color in ipairs(skyColors) do
+            if not skyRGBActive then break end
+            applySkyColor(color)
+            wait(2)  -- Ciclo a cada 2s
+        end
+    end
+end
+
+Tab:AddToggle({
+    Name = "RGB Sky",
+    Description = "Cicla cores no céu (efeito global)",
+    Default = false,
+    Callback = function(value)
+        skyRGBActive = value
+        if value then
+            spawn(cycleSkyRGB)
+        else
+            if skyConnection then skyConnection:Disconnect() end
+            pcall(function()
+                game:GetService("Lighting"):FindFirstChild("SkyRGBEffect"):Destroy()
+            end)
+        end
+    end
+})
+			
 
 game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("ChangeCharacterBody"):InvokeServer(unpack(args))
 game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Wear"):InvokeServer(111858803548721)
@@ -1878,6 +1945,89 @@ local function ActiveAutoFling(targetPlayer)
         pcall(flingloopfix)
     end
 end
+
+
+-- Seção Anti Sit (Substitua o toggle existente)
+TrollTab:AddSection({ "Anti Sit Melhorado" })
+TrollTab:AddToggle({
+    Name = "Anti Sit + Force Jump",
+    Description = "Impede sentar e força pulo em veículos/chairs/chão",
+    Default = false,
+    Callback = function(Value)
+        local player = game.Players.LocalPlayer
+        local connections = {}
+        local runService = game:GetService("RunService")
+
+        local function preventSitting(humanoid)
+            if humanoid then
+                humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+                humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false)  -- Anti-chão
+
+                -- Detecta mudança de estado e força pulo
+                local sitConnection = humanoid.StateChanged:Connect(function(oldState, newState)
+                    if newState == Enum.HumanoidStateType.Seated or newState == Enum.HumanoidStateType.PlatformStanding then
+                        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)  -- Levanta
+                        wait(0.1)
+                        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)   -- Pula
+                        humanoid.PlatformStand = false  -- Sai de platform
+                    end
+                end)
+                table.insert(connections, sitConnection)
+
+                -- Monitora SeatPart em veículos/chairs
+                local seatConnection = humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
+                    if humanoid.SeatPart then
+                        wait(0.1)  -- Delay para detectar sentura
+                        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                        humanoid.Sit = false
+                    end
+                end)
+                table.insert(connections, seatConnection)
+            end
+        end
+
+        local function monitorCharacter()
+            local function onCharacterAdded(character)
+                local humanoid = character:WaitForChild("Humanoid")
+                preventSitting(humanoid)
+            end
+
+            local characterAddedConnection = player.CharacterAdded:Connect(onCharacterAdded)
+            table.insert(connections, characterAddedConnection)
+
+            if player.Character then
+                onCharacterAdded(player.Character)
+            end
+        end
+
+        local function resetSitting()
+            for _, connection in ipairs(connections) do
+                connection:Disconnect()
+            end
+            connections = {}
+            local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+                humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, true)
+                humanoid.PlatformStand = false
+            end
+        end
+
+        if Value then
+            monitorCharacter()
+            -- Loop extra para força em veículos (Heartbeat)
+            local heartbeatConnection = runService.Heartbeat:Connect(function()
+                local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid.SeatPart then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+            table.insert(connections, heartbeatConnection)
+        else
+            resetSitting()
+        end
+    end
+})
 
 local kill = Troll:AddSection({Name = "Fling Boat"})
 
