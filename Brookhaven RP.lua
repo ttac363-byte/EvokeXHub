@@ -1673,6 +1673,116 @@ end
     end
 end
 
+
+
+----======================================
+----=======teste troll============
+
+
+-- Adicione isso no Troll tab, após o dropdown "Select Player"
+
+-- Variável global pra freeze (como no hub)
+getgenv().FreezeEnabled = false
+local freezeConnection = nil
+
+-- Função Freeze (trava HRP na posição atual, loop reforça)
+local function FreezePlayer()
+    if not selectedPlayerName then
+        warn("Error: No player selected")
+        return
+    end
+    local target = Players:FindFirstChild(selectedPlayerName)
+    if not target or not target.Character then
+        warn("Error: Target player not found")
+        return
+    end
+
+    local tChar = target.Character
+    local tRoot = tChar:FindFirstChild("HumanoidRootPart")
+    local tHum = tChar:FindFirstChildOfClass("Humanoid")
+    if not tRoot or not tHum then
+        warn("Error: Target components not found")
+        return
+    end
+
+    -- Posição original (trava ali)
+    local originalPos = tRoot.Position
+
+    -- Desabilita movimento (ragdoll)
+    tHum.PlatformStand = true
+
+    -- BodyPosition pra lock (replica pro server, todos veem)
+    local bp = Instance.new("BodyPosition")
+    bp.Name = "FreezeLock"
+    bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bp.Position = originalPos
+    bp.D = 1000  -- Damping pra suave
+    bp.P = 10000  -- Power alto
+    bp.Parent = tRoot
+
+    -- Loop reforça (como no fling do hub)
+    if freezeConnection then freezeConnection:Disconnect() end
+    freezeConnection = RunService.Heartbeat:Connect(function()
+        if getgenv().FreezeEnabled and tRoot and tRoot.Parent then
+            bp.Position = originalPos  -- Mantém travado
+            tRoot.Velocity = Vector3.new(0, 0, 0)  -- Zera velocidade
+            tRoot.RotVelocity = Vector3.new(0, 0, 0)  -- Zera rotação
+        else
+            freezeConnection:Disconnect()
+            freezeConnection = nil
+        end
+    end)
+
+    print("Player " .. selectedPlayerName .. " frozen!")
+end
+
+-- Função Unfreeze
+local function UnfreezePlayer()
+    getgenv().FreezeEnabled = false
+    if freezeConnection then
+        freezeConnection:Disconnect()
+        freezeConnection = nil
+    end
+    local target = Players:FindFirstChild(selectedPlayerName)
+    if target and target.Character then
+        local tHum = target.Character:FindFirstChildOfClass("Humanoid")
+        local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+        if tHum then tHum.PlatformStand = false end
+        if tRoot then
+            local bp = tRoot:FindFirstChild("FreezeLock")
+            if bp then bp:Destroy() end
+        end
+    end
+    print("Player " .. selectedPlayerName .. " unfrozen!")
+end
+
+-- Adicione no UI: Toggle Freeze (como os outros toggles)
+Troll:AddToggle({
+    Name = "Freeze Player",
+    Description = "Freezes the selected player (can't move)",
+    Default = false,
+    Callback = function(value)
+        getgenv().FreezeEnabled = value
+        if value then
+            FreezePlayer()
+        else
+            UnfreezePlayer()
+        end
+    end
+})
+
+-- Opcional: Button pra freeze rápido (sem toggle)
+Troll:AddButton({
+    Name = "Quick Freeze",
+    Callback = function()
+        FreezePlayer()
+    end
+})
+
+
+------fim---------
+
+
 Troll:AddButton({
     Name = "Fling Ball",
     Callback = function()
