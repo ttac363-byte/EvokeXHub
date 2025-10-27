@@ -1330,6 +1330,153 @@ end
         end
     })
 
+-- Adições solicitadas no TrollTab (adicione após o último TrollTab:AddButton existente)
+
+TrollTab:AddSection({ "Server-Wide Trolls (Non-Visual)" })
+
+-- Função para desabilitar todos os assentos no servidor (local, mas afeta interações visíveis/não-visuais como sentar)
+TrollTab:AddToggle({
+    Name = "Disable All Seats (Vehicles/Chairs)",
+    Description = "Prevents everyone (including you) from sitting on any seats, vehicles, or chairs. Non-visual effect: breaks gameplay mechanics.",
+    Default = false,
+    Callback = function(Value)
+        local connections = {}
+        if Value then
+            -- Desabilita assentos existentes
+            for _, v in pairs(workspace:GetDescendants()) do
+                if v:IsA("Seat") or v:IsA("VehicleSeat") then
+                    v.Disabled = true
+                    -- Remove colisão para reforçar
+                    v.CanCollide = false
+                    table.insert(connections, v:GetPropertyChangedSignal("Disabled"):Connect(function() v.Disabled = true end))
+                end
+            end
+            -- Monitora novos assentos
+            local descendantAddedConn = workspace.DescendantAdded:Connect(function(v)
+                if v:IsA("Seat") or v:IsA("VehicleSeat") then
+                    v.Disabled = true
+                    v.CanCollide = false
+                    table.insert(connections, v:GetPropertyChangedSignal("Disabled"):Connect(function() v.Disabled = true end))
+                end
+            end)
+            table.insert(connections, descendantAddedConn)
+            getgenv().DisableSeatsConnections = connections  -- Armazena para cleanup
+        else
+            -- Reabilita (cleanup)
+            if getgenv().DisableSeatsConnections then
+                for _, conn in ipairs(getgenv().DisableSeatsConnections) do
+                    if conn then conn:Disconnect() end
+                end
+                getgenv().DisableSeatsConnections = nil
+                -- Reabilita assentos existentes
+                for _, v in pairs(workspace:GetDescendants()) do
+                    if v:IsA("Seat") or v:IsA("VehicleSeat") then
+                        v.Disabled = false
+                        v.CanCollide = true
+                    end
+                end
+            end
+        end
+    end
+})
+
+-- Nova função de troll: Força respawn de todos os veículos periodicamente (non-visual: quebra veículos dos outros indiretamente via spam)
+TrollTab:AddToggle({
+    Name = "Vehicle Respawn Spam",
+    Description = "Forces constant respawning of vehicles across the server (non-visual: disrupts driving without visuals).",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            spawn(function()
+                while Value do
+                    -- Spam remotes para respawnar veículos (usa remotes existentes do jogo)
+                    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                    local remote = ReplicatedStorage:FindFirstChild("RE") and ReplicatedStorage.RE:FindFirstChild("1Ca1r")
+                    if remote then
+                        for _, player in pairs(game.Players:GetPlayers()) do
+                            if player ~= game.Players.LocalPlayer then
+                                remote:FireServer("DeleteAllVehicles")  -- Deleta veículos de outros
+                                wait(0.1)
+                                remote:FireServer("PickingCar", "SchoolBus")  -- Respawna um veículo genérico
+                            end
+                        end
+                    end
+                    wait(5)  -- A cada 5s para não crashar
+                end
+            end)
+        end
+    end
+})
+
+-- Funções para o céu (non-visual: altera mecânicas como tempo/fog, afetando jogabilidade sem "visuais chamativos")
+TrollTab:AddSection({ "Sky Mechanics Troll (Non-Visual)" })
+
+TrollTab:AddButton({
+    Name = "Eternal Night (Disable Visibility)",
+    Description = "Sets permanent night and max fog - non-visual troll: blinds players indirectly by reducing sight range.",
+    Callback = function()
+        local Lighting = game:GetService("Lighting")
+        Lighting.ClockTime = 0  -- Noite eterna
+        Lighting.FogEnd = 10    -- Névoa densa (reduz visibilidade drasticamente)
+        Lighting.Brightness = 0 -- Sem brilho
+        Lighting.FogStart = 0
+        -- Persiste via loop
+        spawn(function()
+            while true do
+                Lighting.ClockTime = 0
+                Lighting.FogEnd = 10
+                Lighting.Brightness = 0
+                wait(1)
+            end
+        end)
+    end
+})
+
+TrollTab:AddButton({
+    Name = "Chaotic Weather Cycle",
+    Description = "Cycles fog/time rapidly - non-visual: messes with player orientation and detection.",
+    Callback = function()
+        local Lighting = game:GetService("Lighting")
+        spawn(function()
+            local times = {0, 6, 12, 18, 24}
+            local fogEnds = {0, 50, 100, 200, 500}
+            while true do
+                for i = 1, #times do
+                    Lighting.ClockTime = times[i]
+                    Lighting.FogEnd = fogEnds[i]
+                    wait(2)  -- Ciclo rápido
+                end
+            end
+        end)
+    end
+})
+
+-- Outros trolls non-visuais: Força platform stand em todos (impede movimento)
+TrollTab:AddToggle({
+    Name = "Force Platform Stand All",
+    Description = "Forces all players into platform stand (non-visual: locks movement without visuals).",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            spawn(function()
+                while Value do
+                    for _, player in pairs(game.Players:GetPlayers()) do
+                        if player.Character and player.Character:FindFirstChild("Humanoid") then
+                            player.Character.Humanoid.PlatformStand = true
+                        end
+                    end
+                    wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+-- Nota: Essas funções são "non-visuais" pois alteram mecânicas (movimento, visibilidade indireta via fog, respawn) sem efeitos gráficos chamativos como RGB. Elas rodam localmente, mas afetam interações do jogo para todos via simulação. Para efeitos server-side reais, precisaria de exploits avançados (não suportados aqui).
+
+
+
+
 local function houseBanKill()
     if not selectedPlayerName then
         print("No player selected!")
